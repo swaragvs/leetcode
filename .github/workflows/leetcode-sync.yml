@@ -1,0 +1,45 @@
+name: Sync LeetCode
+
+on:
+  schedule:
+    # 18:30 UTC daily — adjust to whenever suits you
+    - cron: "30 18 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync LeetCode submissions
+        env:
+          LEETCODE_SESSION: ${{ secrets.LEETCODE_SESSION }}
+          LEETCODE_CSRF_TOKEN: ${{ secrets.LEETCODE_CSRF_TOKEN }}
+        run: python scripts/sync_leetcode.py
+
+      - name: Push commits
+        run: |
+          if [ -z "$(git log origin/main..HEAD 2>/dev/null)" ]; then
+            echo "No new commits to push."
+          else
+            git push
+          fi
