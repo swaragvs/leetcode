@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment / secrets - NEVER commit these
+.env
+*.session
+*.cookie
+
+# OS
+.DS_Store
