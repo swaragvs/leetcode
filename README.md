@@ -9,15 +9,16 @@ every line of automation in this repo is auditable.
 
 ## Progress
 
+<!-- STATS_START -->
 | Difficulty | Solved |
 |------------|--------|
-| Easy       | 0      |
-| Medium     | 0      |
+| Easy       | 4      |
+| Medium     | 1      |
 | Hard       | 0      |
+| **Total**  | **5** |
+<!-- STATS_END -->
 
-*(This table will be updated automatically once syncing is live.)*
-
-## Repository structure
+*(This table updates automatically after each sync.)*
 
 ```
 solutions/
@@ -37,8 +38,9 @@ language, submission date).
 1. A scheduled GitHub Action runs daily (and can be triggered manually).
 2. It reads my recent accepted submissions.
 3. It diffs them against what's already archived.
-4. New solutions are added and committed with `GITHUB_TOKEN` — no personal
-   access token required.
+4. New solutions are added and committed with `GITHUB\_TOKEN` — no personal
+access token required.
 
 See the project plan in `docs/` (added in a later phase) for the full
 security rationale.
+
