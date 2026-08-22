@@ -89,6 +89,7 @@ query submissionDetails($submissionId: Int!) {
       questionFrontendId
       title
       titleSlug
+      difficulty
     }
   }
 }
@@ -180,6 +181,63 @@ def fetch_code(session, submission_id):
     return data["submissionDetails"]
 
 
+QUESTION_DIFFICULTY_QUERY = """
+query questionDifficulty($titleSlug: String!) {
+  question(titleSlug: $titleSlug) {
+    difficulty
+  }
+}
+"""
+
+
+def fetch_difficulty(session, title_slug):
+    data = graphql(session, QUESTION_DIFFICULTY_QUERY, {"titleSlug": title_slug})
+    question = data.get("question")
+    if not question:
+        return "Unknown"
+    return question.get("difficulty", "Unknown")
+
+
+def backfill_difficulty(session, dry_run):
+    """Fill in the 'difficulty' field for solutions synced before this
+    feature existed, so the README stats table counts them correctly."""
+    updated_any = False
+
+    for meta_file in SOLUTIONS_DIR.glob("*/metadata.json"):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        if meta.get("difficulty"):
+            continue
+
+        title_slug = meta.get("title_slug")
+        if not title_slug:
+            continue
+
+        difficulty = fetch_difficulty(session, title_slug)
+        print(f"Backfilling difficulty for {title_slug}: {difficulty}")
+
+        if dry_run:
+            continue
+
+        meta["difficulty"] = difficulty
+        meta_file.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        subprocess.run(["git", "add", str(meta_file)], check=True, cwd=REPO_ROOT)
+        updated_any = True
+
+    if updated_any:
+        subprocess.run(
+            ["git", "commit", "-m", "chore: backfill difficulty metadata"],
+            check=True,
+            cwd=REPO_ROOT,
+        )
+        print("Committed difficulty backfill.")
+
+    return updated_any
+
+
 def slug_folder_name(question_id, title_slug):
     return f"{int(question_id):04d}-{title_slug}"
 
@@ -189,7 +247,7 @@ def already_synced(question_id, title_slug):
     return folder.exists()
 
 
-def write_solution(question_id, title, title_slug, code, lang_name, timestamp, dry_run):
+def write_solution(question_id, title, title_slug, code, lang_name, timestamp, difficulty, dry_run):
     ext = LANG_EXTENSIONS.get(lang_name.lower().replace(" ", ""), "txt")
     folder = SOLUTIONS_DIR / slug_folder_name(question_id, title_slug)
     solution_file = folder / f"solution.{ext}"
@@ -200,6 +258,7 @@ def write_solution(question_id, title, title_slug, code, lang_name, timestamp, d
         "title": title,
         "title_slug": title_slug,
         "language": lang_name,
+        "difficulty": difficulty,
         "submitted_at": timestamp,
     }
 
@@ -235,6 +294,79 @@ def commit_solution(folder, title, timestamp):
         env=env,
     )
     print(f"Committed with date {commit_date}: {title}")
+
+
+README_STATS_START = "<!-- STATS_START -->"
+README_STATS_END = "<!-- STATS_END -->"
+
+
+def update_readme_stats(dry_run):
+    """Recount Easy/Medium/Hard from every solution's metadata.json and
+    rewrite the stats table in README.md between marker comments."""
+    counts = {"Easy": 0, "Medium": 0, "Hard": 0, "Unknown": 0}
+
+    for meta_file in SOLUTIONS_DIR.glob("*/metadata.json"):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        difficulty = meta.get("difficulty", "Unknown")
+        if difficulty not in counts:
+            difficulty = "Unknown"
+        counts[difficulty] += 1
+
+    total = counts["Easy"] + counts["Medium"] + counts["Hard"]
+
+    table_lines = [
+        README_STATS_START,
+        "| Difficulty | Solved |",
+        "|------------|--------|",
+        f"| Easy       | {counts['Easy']}      |",
+        f"| Medium     | {counts['Medium']}      |",
+        f"| Hard       | {counts['Hard']}      |",
+        f"| **Total**  | **{total}** |",
+    ]
+    if counts["Unknown"]:
+        table_lines.append(
+            f"\n_{counts['Unknown']} solution(s) synced before difficulty "
+            "tracking was added; re-sync isn't required, this note will "
+            "disappear as old entries age out of relevance._"
+        )
+    table_lines.append(README_STATS_END)
+    new_block = "\n".join(table_lines)
+
+    readme_path = REPO_ROOT / "README.md"
+    readme_text = readme_path.read_text(encoding="utf-8")
+
+    pattern = re.compile(
+        re.escape(README_STATS_START) + r".*?" + re.escape(README_STATS_END),
+        re.DOTALL,
+    )
+
+    if README_STATS_START not in readme_text:
+        print("README stats markers not found; skipping README update.")
+        return False
+
+    updated_text = pattern.sub(new_block, readme_text)
+
+    if updated_text == readme_text:
+        print("README stats unchanged.")
+        return False
+
+    if dry_run:
+        print("[dry-run] would update README.md stats table")
+        return False
+
+    readme_path.write_text(updated_text, encoding="utf-8")
+
+    subprocess.run(["git", "add", "README.md"], check=True, cwd=REPO_ROOT)
+    subprocess.run(
+        ["git", "commit", "-m", "chore: update README stats"],
+        check=True,
+        cwd=REPO_ROOT,
+    )
+    print("Committed README stats update.")
+    return True
 
 
 def main():
@@ -280,6 +412,7 @@ def main():
             code=detail["code"],
             lang_name=detail["lang"]["name"],
             timestamp=sub["timestamp"],
+            difficulty=question.get("difficulty", "Unknown"),
             dry_run=args.dry_run,
         )
 
@@ -289,6 +422,10 @@ def main():
         new_count += 1
 
     print(f"\nDone. {new_count} new solution(s) {'would be ' if args.dry_run else ''}added.")
+
+    if not args.no_commit:
+        backfill_difficulty(session, dry_run=args.dry_run)
+        update_readme_stats(dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
