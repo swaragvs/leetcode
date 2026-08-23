@@ -12,10 +12,10 @@ every line of automation in this repo is auditable.
 <!-- STATS_START -->
 | Difficulty | Solved |
 |------------|--------|
-| Easy       | 12      |
+| Easy       | 13      |
 | Medium     | 4      |
 | Hard       | 0      |
-| **Total**  | **16** |
+| **Total**  | **17** |
 <!-- STATS_END -->
 
 *(This table updates automatically after each sync.)*
